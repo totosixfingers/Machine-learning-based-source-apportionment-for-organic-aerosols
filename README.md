@@ -69,20 +69,9 @@ $ python src/classifier/ams_sparse_logreg_train.py --csv <train_data>.csv --outd
 
 ### 1. L1 Logistic Regression
 
-python src/classifier/ams_sparse_logreg_train.py \
-  --csv resources/library.csv \
-  --outdir resources/ \
-  --penalty l1 \
-  --quiet \
-  --overwritemodel
+$ python src/classifier/ams_sparse_logreg_train.py \ --csv resources/library.csv \ --outdir resources/ \ --penalty l1 \ --quiet \ --overwritemodel
 
-python src/classifier/ams_sparse_logreg_train.py \
-  --csv resources/library.csv \
-  --outdir resources/ \
-  --penalty elasticnet \
-  --l1-ratios 0.5 0.75 0.9 1.0 \
-  --quiet \
-  --overwritemodel
+$ python src/classifier/ams_sparse_logreg_train.py \ --csv resources/library.csv \ --outdir resources/ \ --penalty elasticnet \ --l1-ratios 0.5 0.75 0.9 1.0 \ --quiet \--overwritemodel
 
 
   --------------------
