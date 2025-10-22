@@ -1,1 +1,0 @@
-model: model_98feat_l2.joblib

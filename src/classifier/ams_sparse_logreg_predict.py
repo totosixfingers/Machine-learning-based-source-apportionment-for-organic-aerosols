@@ -216,21 +216,13 @@ def main(input_csv: str, model_path: str, outdir: str):
         
     else:
         y_pred = y_pred_int
-        proba_cols = [f"proba:{i}" for i in range(proba.shape[1])]
-        classes_ = [str(i) for i in range(proba.shape[1])]
+        final_model = _final_estimator(model)
+        classes_ = list(final_model.classes_)
+        proba_cols = [f"proba:{cls}" for cls in classes_]
 
-    proba_df = pd.DataFrame(proba, columns=proba_cols)
+    proba_df = pd.DataFrame(proba, columns=proba_cols, index=df.index)
 
 
-# Compute absolute (mass-weighted) contributions if total measured mass is available
-    mz_cols = [c for c in df.columns if isinstance(c, (int, np.integer))]
-    if mz_cols:
-        total_mass = df[mz_cols].sum(axis=1)
-        abs_mass_df = proba_df.mul(total_mass, axis=0)
-        # Rename to use the same class names as in proba_df
-        abs_mass_df.columns = [c.replace("proba:", "mass:") for c in proba_df.columns]
-    else:
-        abs_mass_df = pd.DataFrame(index=df.index)  # empty if no m/z columns
 
     # 6) Compose output table
     out = pd.DataFrame({"pred_label": y_pred}, index=df.index)
@@ -238,14 +230,14 @@ def main(input_csv: str, model_path: str, outdir: str):
         out.insert(0, time_col, df[time_col])
 
     # include only probabilities and absolute (mass-weighted) contributions
-    out = pd.concat([out, proba_df, abs_mass_df], axis=1)
+    out = pd.concat([out, proba_df], axis=1)
 
 
 
     # 7) Save CSV and a tiny sidecar .meta.txt
     out_path = make_output_filename(model_path, outdir)
     model_name = Path(model_path).name
-    out.to_csv(out_path, index=False)
+    out.to_csv(out_path, index=False, sep=";", encoding="utf-8-sig")
 
     meta_path = make_meta_filename(model_path, outdir)
     with open(meta_path, "w", encoding="utf-8") as mf:
@@ -255,40 +247,7 @@ def main(input_csv: str, model_path: str, outdir: str):
     logger.info(f"Saved metadata to {meta_path}")
     logger.info(f"Classes: {', '.join(map(str, classes_))}")
     
-    # 8) some statistics
     
-    mean_probs = proba_df.mean()
-    fig, ax = plt.subplots(figsize=(8, 4))
-    mean_probs.plot(kind="bar", ax=ax)
-    ax.set_title(f"Mean predicted probabilities ({Path(model_path).stem})")
-    ax.set_ylabel("Mean probability")
-    ax.set_xlabel("Class")
-    plt.tight_layout()
-    prob_plot_path = outdir / f"mean_probabilities_{Path(model_path).stem}.png"
-    plt.savefig(prob_plot_path, dpi=200)
-    plt.close(fig)
-    logger.info(f"Saved mean probability plot → {prob_plot_path}")
-    
-    if mz_cols:
-        predicted_total_mass = abs_mass_df.sum(axis=1)
-        measured_total_mass = total_mass
-
-        fig, ax = plt.subplots(figsize=(6, 6))
-        ax.scatter(measured_total_mass, predicted_total_mass, alpha=0.6)
-        minv, maxv = (
-            min(measured_total_mass.min(), predicted_total_mass.min()),
-            max(measured_total_mass.max(), predicted_total_mass.max()),
-        )
-        ax.plot([minv, maxv], [minv, maxv], "r--", label="1:1 line")
-        ax.set_title(f"Mass consistency check ({Path(model_path).stem})")
-        ax.set_xlabel("Measured total mass")
-        ax.set_ylabel("Predicted total mass")
-        ax.legend()
-        plt.tight_layout()
-        mass_plot_path = outdir / f"mass_consistency_{Path(model_path).stem}.png"
-        plt.savefig(mass_plot_path, dpi=200)
-        plt.close(fig)
-        logger.info(f"Saved total mass consistency plot → {mass_plot_path}")
 
 
 if __name__ == "__main__":
