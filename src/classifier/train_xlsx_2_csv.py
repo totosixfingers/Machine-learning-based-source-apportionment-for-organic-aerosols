@@ -19,9 +19,77 @@ import csv
 from collections import Counter, defaultdict
 from decimal import Decimal
 
+import os
 import numpy as np
 import pandas as pd
+import matplotlib.pyplot as plt
 
+
+def plot_feature_histograms(csv_path: str):
+    df = pd.read_csv(csv_path)
+    if "label" not in df.columns:
+        raise ValueError("CSV must contain a 'label' column.")
+
+    features = [c for c in df.columns if c not in ["label", "where"] and np.issubdtype(df[c].dtype, np.number)]
+    if not features:
+        raise ValueError("No numeric features found to plot.")
+
+    classes = sorted(df["label"].dropna().unique())
+    output_dir = os.path.join(os.path.dirname(csv_path), "results", "histograms")
+    os.makedirs(output_dir, exist_ok=True)
+
+    for feat in features:
+        plt.figure(figsize=(10, 6))
+        plotted = False
+        for cls in classes:
+            vals = df.loc[df["label"] == cls, feat].dropna()
+            if vals.empty or np.all(np.isnan(vals)):
+                continue
+            # Clip extremes for better visualization
+            vals = np.clip(vals, np.percentile(vals, 0.1), np.percentile(vals, 99.9))
+            plt.hist(vals, bins=30, alpha=0.5, label=str(cls), density=False)
+            plt.ylabel("Count")
+            plotted = True
+        
+        if not plotted:
+            plt.close()
+            continue
+
+        plt.title(f"Histogram of Feature '{feat}' by Class")
+        plt.xlabel("Intensity")
+        plt.ylabel("Density")
+        plt.xscale('log')  # <-- log scale to zoom in
+        plt.legend()
+        plt.tight_layout()
+
+        output_path = os.path.join(output_dir, f"histogram_{feat}.png")
+        plt.savefig(output_path, dpi=300)
+        plt.close()
+
+
+def plot_class_histogram(csv_path: str, output_path: str = None):
+    # Load the CSV
+    df = pd.read_csv(csv_path)
+
+    if "label" not in df.columns:
+        raise ValueError("The CSV file must contain a 'label' column.")
+
+    # Count samples per class
+    class_counts = df["label"].value_counts().sort_index()
+
+    # Plot
+    plt.figure(figsize=(8, 5))
+    class_counts.plot(kind="bar", color="skyblue", edgecolor="black")
+    plt.title("Class Distribution")
+    plt.xlabel("Class Label")
+    plt.ylabel("Number of Samples")
+    plt.xticks(rotation=45, ha="right")
+    plt.tight_layout()
+    
+    base, _ = os.path.splitext(csv_path)
+    output_path = base + "_hist.png"
+    plt.savefig(output_path, dpi=300)
+    
 
 def _make_unique(names):
     """
@@ -177,6 +245,9 @@ def main():
     parser.add_argument("--sheet", help="Worksheet name (default: Sheet1)")
     args = parser.parse_args()
     convert_excel_to_csv(args.input, args.output, args.sheet)
+    
+    plot_class_histogram(args.output)
+    plot_feature_histograms(args.output)
 
 
 if __name__ == "__main__":

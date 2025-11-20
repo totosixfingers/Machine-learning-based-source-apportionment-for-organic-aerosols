@@ -176,10 +176,10 @@ def _print_colored_classification_report(y_true, y_pred, labels):
 def main(
     csv_path: str,
     outdir: str,
-    #explicit_features: Iterable[int] | None,
     penalty: str,
     l1_ratios: List[float] | None,
     overwritemodel: bool,
+    classes: Optional[List[str]] = None,
 ):
     # ----------------- pre-check for output file -----------------
     os.makedirs(outdir, exist_ok=True)
@@ -200,6 +200,15 @@ def main(
     if "label" not in df.columns:
         raise ValueError("CSV must contain a 'label' column.")
 
+    if classes is not None:
+        available = set(df["label"].astype(str))
+        requested = set(classes)
+        missing = requested - available
+        if missing:
+            raise SystemExit(f"Error: requested classes not found in CSV: {missing}")
+        df = df[df["label"].astype(str).isin(requested)]
+        print(f"Training restricted to classes: {sorted(requested)}")
+        
     # Strict feature selection
     X_df, used_mz = pick_feature_columns(df)#, explicit_features=explicit_features)
     print(f"Using {len(used_mz)} m/z features:", used_mz[:15], ("..." if len(used_mz) > 15 else ""))
@@ -497,6 +506,13 @@ if __name__ == "__main__":
         action="store_true",
         help="Overwrite existing model file without asking",
     )
+    
+    ap.add_argument(
+        "--classes",
+        nargs="+",
+        default=None,
+        help="Optional: restrict training to only these class labels (e.g. --classes HOA COA BBOA).",
+    )
     args = ap.parse_args()
 
     # Validation
@@ -517,8 +533,8 @@ if __name__ == "__main__":
     main(
         args.csv,
         args.outdir,
-        #explicit_features=args.features,
         penalty=args.penalty,
         l1_ratios=args.l1_ratios if args.penalty == "elasticnet" else None,
         overwritemodel=args.overwritemodel,
+        classes=args.classes,
     )
