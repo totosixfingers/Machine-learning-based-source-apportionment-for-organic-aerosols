@@ -128,6 +128,133 @@ $ python src/classifier/prob_class_comparison.py  --true_csv resources/run_tests
   Penalty or model type label.  
 ----------------
 
+## NMF and Autoencoder Source Apportionment (Additional Tools)
+These scripts allow performing NMF, Autoencoder, and Source-Based Autoencoder decompositions on AMS measurement data.
+
+### Prepare Measurement Files
+
+Measurement input files must be in Excel (.xlsx) format with one or more of the following sheets:
+
+- measurements or X
+
+- Time series of AMS spectra.
+
+  - Column 1 = timestamps
+
+  - Columns 2..N = m/z intensities
+
+  - Column names must contain a parseable m/z (e.g., 43, m/z 43, mz_43)
+
+- F (optional) Ground-truth source profiles (m/z × components).
+
+- G (optional) Ground-truth time series contributions (time × components).
+
+These are automatically loaded using the shared Measurement class. Also it contains ploting functions.
+
+
+### Run NMF
+
+```
+$ python nmf_runner.py --input <data.xlsx> --output <prefix> --k <components> --max_iter 500 --tol 1e-4
+```
+
+
+Arguments
+
+-  --input
+  Path to measurement file (.xlsx or .csv)
+
+- --output
+Prefix used to save learned F and G matrices
+
+- --k
+Number of components
+
+- --max_iter
+Maximum number of NMF iterations
+
+- --tol
+Convergence tolerance
+
+Example 
+```
+$ python nmf_runner.py --input resources/RusanenEtAl_synthetic.xlsx --output results/nmf_run --k 5 --max_iter 600
+```
+
+This produces:
+
+- <prefix>_F_learned.csv
+
+- <prefix>_G_learned.csv
+
+- Profile plots (F)
+
+- Contribution plots (G)
+
+- Residual plots
+
+- Correlation vs ground truth (if available)
+
+
+### Run Autoencoder / Source-Based Autoencoder
+
+
+
+```
+$ python autoencoder_runner.py --input <data.xlsx> --output <prefix> --k 5 --lr 1e-2 --epochs 500 --fixed_profiles <profiles.xlsx>
+
+```
+Arguments
+
+- --input :
+Measurement file (.xlsx or .csv)
+
+- --output :
+Prefix used for saving learned matrices
+
+- --k :
+Total number of sources (free + fixed)
+
+- --lr :
+Learning rate
+
+- --epochs :
+Number of training iterations
+
+- --fixed_profiles :
+Excel file containing multiple candidates for fixed profiles
+(e.g., HOA, CCOA, BBOA).
+
+One random variant of each is selected during training.
+
+
+### Autoencoders.py (Model Definitions)
+
+
+#### Autoencoder(m, k)
+
+A linear autoencoder defined as:
+
+- Non-negative encoder weights
+
+- Non-negative decoder weights
+
+Reconstruction:
+- X → G → X_hat
+
+#### SourceBasedAE(m, k, F_fixed, n_fixed)
+
+Semi-supervised version:
+
+- First n_fixed profiles are fixed (HOA, CCOA, BBOA, etc.)
+
+- Remaining profiles are learned
+
+Decoder structure:
+- F = [F_fixed | F_free]
+- X_hat = G @ F^T
+
+
 ## Exit the poetry shell
 
 ```
