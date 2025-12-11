@@ -3,6 +3,10 @@ import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
 import re
+from sklearn.metrics import mean_squared_error
+from scipy.stats import norm
+from scipy.stats import gaussian_kde
+from mpl_toolkits.axes_grid1.inset_locator import inset_axes
 
 
 class Measurement:
@@ -30,6 +34,8 @@ class Measurement:
             self.plot_dir, f"{plot_subdir}_F_learned.csv")
         self.output_G = os.path.join(
             self.plot_dir, f"{plot_subdir}_G_learned.csv")
+        self.output_RMSE = os.path.join(
+            self.plot_dir, f"{plot_subdir}_RMSE.csv")
 
         # Plot files
         self.plot_F = os.path.join(
@@ -52,6 +58,7 @@ class Measurement:
         self.G_truth = None
         self.F_learned = None
         self.G_learned = None
+        self.E = None
 
     # ---------------------------------------------------------
     #                     DATA LOADING
@@ -72,17 +79,19 @@ class Measurement:
         else:
             raise ValueError("Could not find 'measurements' or 'X' sheet.")
 
-        # First column = time
-        self.time = df_X.iloc[:, 0].values
+        # First column = time or Date
+        # self.time = df_X.iloc[:, 0].values
+        self.time = pd.to_datetime(df_X.iloc[:, 0], dayfirst=True)
 
         # Remaining columns = measurement matrix X
-        self.X = df_X.iloc[:, 1:].values
+        self.X = df_X.iloc[:, 1:].replace(
+            ",", ".", regex=True).astype(float).values
 
         # m/z labels = column names
         # Extract numeric m/z values safely from column names
         self.mz_labels = []
         for col in df_X.columns[1:]:
-        # Use regex to extract numeric part
+            # Use regex to extract numeric part
             match = re.search(r"[-+]?\d*\.\d+|\d+", str(col))
             if match:
                 self.mz_labels.append(float(match.group()))
@@ -103,6 +112,15 @@ class Measurement:
             self.G_truth = df_G.iloc[:, 1:].values
 
         print("Data loaded successfully.")
+
+        # ----- error sheet -----
+        if "error" in sheets:
+            df_err = pd.read_excel(self.input_path, sheet_name="error")
+            # assume same structure as X: first column time, rest = errors
+            self.E = df_err.iloc[:, 1:].replace(
+                ",", ".", regex=True).astype(float).values
+        else:
+            self.E = None
 
     # ---------------------------------------------------------
     #                     GROUND TRUTH CHECK
@@ -127,8 +145,10 @@ class Measurement:
 
         for i in range(n_sources):
             # Compute correlations of learned source i with all ground truth sources
-            corr_Gs = [np.corrcoef(self.G_learned[:, i], G_truth[:, j])[0, 1] for j in range(n_sources)]
-            corr_Fs = [np.corrcoef(self.F_learned[:, i], F_truth[:, j])[0, 1] for j in range(n_sources)]
+            corr_Gs = [np.corrcoef(self.G_learned[:, i], G_truth[:, j])[
+                0, 1] for j in range(n_sources)]
+            corr_Fs = [np.corrcoef(self.F_learned[:, i], F_truth[:, j])[
+                0, 1] for j in range(n_sources)]
 
             # Find ground truth source with maximum correlation
             max_corr_G_idx = int(np.argmax(np.abs(corr_Gs)))
@@ -137,19 +157,22 @@ class Measurement:
             matched_indices.append((max_corr_G_idx, max_corr_F_idx))
 
             # RMSE with the matched ground truth source
-            rmse_G = np.sqrt(np.mean((self.G_learned[:, i] - G_truth[:, max_corr_G_idx]) ** 2))
-            rmse_F = np.sqrt(np.mean((self.F_learned[:, i] - F_truth[:, max_corr_F_idx]) ** 2))
+            rmse_G = np.sqrt(
+                np.mean((self.G_learned[:, i] - G_truth[:, max_corr_G_idx]) ** 2))
+            rmse_F = np.sqrt(
+                np.mean((self.F_learned[:, i] - F_truth[:, max_corr_F_idx]) ** 2))
 
             print(
-            f"Learned Source {i+1}: "
-            f"matches Ground Truth G Source {max_corr_G_idx+1} | "
-            f"G corr = {corr_Gs[max_corr_G_idx]:.3f}, G RMSE = {rmse_G:.3f} | "
-            f"matches Ground Truth F Source {max_corr_F_idx+1} | "
-            f"F corr = {corr_Fs[max_corr_F_idx]:.3f}, F RMSE = {rmse_F:.3f}"
+                f"Learned Source {i+1}: "
+                f"matches Ground Truth G Source {max_corr_G_idx+1} | "
+                f"G corr = {corr_Gs[max_corr_G_idx]:.3f}, G RMSE = {rmse_G:.3f} | "
+                f"matches Ground Truth F Source {max_corr_F_idx+1} | "
+                f"F corr = {corr_Fs[max_corr_F_idx]:.3f}, F RMSE = {rmse_F:.3f}"
             )
     # ---------------------------------------------------------
     #                         PLOTTING
     # ---------------------------------------------------------
+
     def plot(self):
         """
         Saves:
@@ -158,6 +181,9 @@ class Measurement:
             - stacked G contributions
             - G correlation scatterplots
         """
+        if not self.has_ground_truth():
+            print("No ground truth available. Skipping comparison.")
+            return
 
         F_truth = self.F_truth
         G_truth = self.G_truth
@@ -166,15 +192,41 @@ class Measurement:
         k = self.F_learned.shape[1]
 
         # ------------------ 1. F profiles ----------------------
-        fig, axs = plt.subplots(k, 1, figsize=(10, 2*k), sharex=True)
+        fig, axs = plt.subplots(k, 1, figsize=(10, 2 * k), sharex=True)
+
+        width = 0.35  # bar width offset for truth bars
+
         for i in range(k):
-            axs[i].plot(mz, self.F_learned[:, i],
-                        label=f"Source {i+1}", color="C0")
+            # Learned
+            axs[i].bar(self.mz_labels,
+                       self.F_learned[:, i],
+                       width=width,
+                       label=f"Source {i+1}",
+                       color="C0")
+
+            # Truth overlay
             if F_truth is not None:
-                axs[i].plot(mz, F_truth[:, i], "--", color="C1", label="Truth")
+                axs[i].bar(self.mz_labels + width,
+                           F_truth[:, i],
+                           width=width,
+                           label="Truth",
+                           color="C1",
+                           alpha=0.7)
+
             axs[i].legend()
             axs[i].set_ylabel("Intensity")
+
         axs[-1].set_xlabel("m/z")
+
+        # Show all m/z labels
+        formatted_labels = [
+            str(int(mz)) if float(mz).is_integer() else f"{mz:.2f}"
+            for mz in self.mz_labels
+        ]
+
+        axs[-1].set_xticks(self.mz_labels)
+        axs[-1].set_xticklabels(formatted_labels, fontsize=4, rotation=90)
+
         plt.tight_layout()
         plt.savefig(self.plot_F, dpi=300)
         plt.close()
@@ -237,16 +289,15 @@ class Measurement:
         X_hat = np.asarray(X_hat)
 
         eps = 1e-9
-        R = (self.X - X_hat) / (np.maximum(self.X, eps))
+        R = np.abs((self.X - X_hat) / (np.maximum(self.X, eps)))
 
         # File paths
         path_res_mz = os.path.join(self.plot_dir, "residuals_over_mz.png")
         path_res_time = os.path.join(self.plot_dir, "residuals_over_time.png")
         path_res_hist = os.path.join(self.plot_dir, "residuals_histogram.png")
 
-        
         mz = self.mz_labels
-        
+
         time = self.time
 
         # ---------------------------------------------------------
@@ -256,14 +307,15 @@ class Measurement:
         std_mz = np.std(R, axis=0)
 
         plt.figure(figsize=(10, 4))
-        plt.plot(mz, mean_mz, label="Mean residual")
-        plt.fill_between(mz, mean_mz - std_mz, mean_mz + std_mz, alpha=0.3, color="red")
+        plt.bar(mz, mean_mz, yerr=std_mz, alpha=0.8, capsize=3)
+        plt.axhline(0, color='black', linewidth=1)
         plt.xlabel("m/z")
         plt.ylabel("Scaled residual")
-        plt.title("Scaled Residuals Over m/z")
-        
+        plt.title("Scaled Residuals Over m/z (Signed, Bar Plot)")
+
         # Format m/z labels: remove .0 if integer
-        formatted_labels = [str(int(float(mz))) if float(mz).is_integer() else str(mz) for mz in self.mz_labels]
+        formatted_labels = [str(int(float(mz))) if float(
+            mz).is_integer() else str(mz) for mz in self.mz_labels]
 
         # Set x-ticks with small font, no rotation
         plt.xticks(self.mz_labels, formatted_labels, fontsize=4)  # small font
@@ -287,14 +339,42 @@ class Measurement:
         plt.savefig(path_res_time, dpi=300)
         plt.close()
 
-        # ---------------------------------------------------------
-        # (c) Histogram of all scaled residuals
-        # ---------------------------------------------------------
-        plt.figure(figsize=(6, 4))
-        plt.hist(R.flatten(), bins=80, alpha=0.7)
-        plt.xlabel("Scaled residual")
-        plt.ylabel("Frequency")
-        plt.title("Histogram of Scaled Residuals")
+        # ----------------------------
+        # (c) Histogram of scaled residuals
+        # ----------------------------
+        R = (self.X - X_hat) / (self.E + eps)     # <-- correct denominator, signed
+        flat = R.flatten()
+
+        plt.figure(figsize=(7, 5))
+
+        # Symmetric trimming around 1st–99th percentiles
+        p_low, p_high = np.percentile(flat, [1, 99])
+        mask = (flat >= p_low) & (flat <= p_high)
+        flat_trim = flat[mask]
+
+        # Histogram
+        plt.hist(flat_trim, bins=60, density=True, alpha=0.55, color="C0",
+                edgecolor="black", linewidth=0.4, label="Residuals (1–99th percentile)")
+
+        # Fit normal distribution
+        mu, sigma = flat_trim.mean(), flat_trim.std()
+        x = np.linspace(flat_trim.min(), flat_trim.max(), 300)
+
+        plt.plot(x, norm.pdf(x, mu, sigma),
+                color="C1", linewidth=2, alpha=0.6, label=f"Normal Fit")
+
+        # KDE
+        try:
+            kde = gaussian_kde(flat_trim)
+            plt.plot(x, kde(x), color="C2", linewidth=2, alpha=0.6, label="KDE")
+        except Exception:
+            pass
+
+        plt.xlabel("Scaled residual (signed)")
+        plt.ylabel("Density")
+        plt.title(f"Residual Distribution (μ={mu:.3f}, σ={sigma:.3f})")
+        plt.grid(alpha=0.25)
+        plt.legend()
         plt.tight_layout()
         plt.savefig(path_res_hist, dpi=300)
         plt.close()
@@ -304,14 +384,29 @@ class Measurement:
         print(f"  - {path_res_time}")
         print(f"  - {path_res_hist}")
 
-    def load_fixed_profiles(self, labels=("HOA", "BBOA")):
+    def load_fixed_profiles(self, labels=("HOA", "CCOA", "BBOA"), random_fixed=False, rng_seed=42):
+        """
+    Load fixed source profiles from library.
+
+    Parameters
+    ----------
+    labels : tuple of str
+        Profile base labels, e.g. ("HOA", "BBOA", ...).
+    random_fixed : bool
+        If False: deterministic selection (same variants every time per rng_seed).
+        If True : random selection each call (used for multi-run uncertainty).
+    rng_seed : int
+        Seed used when random_fixed=False, for reproducibility.
+    """
         print("Loading fixed source profiles (random selection per profile)...")
 
-        df = pd.read_excel(self.F_fixed_path,sheet_name=1, decimal=",")
+        df = pd.read_excel(self.F_fixed_path, sheet_name=1, decimal=",")
 
         df_filtered = df[df["m/z"].isin(self.mz_labels)]
-
-
+        if random_fixed:
+            rng = np.random.default_rng()       # new random state each call
+        else:
+            rng = np.random.default_rng(rng_seed)
         fixed_profiles = []
 
         # For each requested profile name
@@ -321,14 +416,15 @@ class Measurement:
                 raise ValueError(f"No columns found for label '{label}'")
 
             # Randomly select one variant
-            selected_col = np.random.default_rng(42).choice(matching_cols)
+            selected_col = rng.choice(matching_cols)
 
-
-            profile = pd.to_numeric(df_filtered[selected_col], errors='coerce').to_numpy()
+            profile = pd.to_numeric(
+                df_filtered[selected_col], errors='coerce').to_numpy()
             profile = np.nan_to_num(profile, nan=0.0)
 
             fixed_profiles.append(profile)
-            print(f"Selected random variant for {label}: column '{selected_col}'")
+            print(
+                f"Selected random variant for {label}: column '{selected_col}'")
 
         # Stack → shape (m, k_fixed)
         F_fixed = np.stack(fixed_profiles, axis=1)
@@ -340,6 +436,125 @@ class Measurement:
         self.F_fixed = F_fixed
         self.n_fixed = n_fixed
 
+    def Excel_results_creation(self):
+        # Save F with ground truth (when available)
+        if self.has_ground_truth():
+            F_combined = {}
+            for i in range(self.F_learned.shape[1]):
+                F_combined[f"Learned_{i+1}"] = self.F_learned[:, i]
+                F_combined[f"Truth_{i+1}"] = self.F_truth[:, i]
+            F_df = pd.DataFrame(F_combined, index=self.get_mz_labels())
+        else:
+            F_df = pd.DataFrame(self.F_learned, index=self.get_mz_labels(),
+                                columns=[f"Learned_{i+1}" for i in range(self.F_learned.shape[1])])
+
+        F_df.to_csv(self.output_F)
+
+        # Save G with ground truth (when available)
+        if self.has_ground_truth():
+            G_combined = {}
+            for i in range(self.G_learned.shape[1]):
+                G_combined[f"Learned_{i+1}"] = self.G_learned[:, i]
+                G_combined[f"Truth_{i+1}"] = self.G_truth[:, i]
+            G_df = pd.DataFrame(G_combined, index=self.get_time())
+        else:
+            G_df = pd.DataFrame(self.G_learned, index=self.get_time(),
+                                columns=[f"Learned_{i+1}" for i in range(self.G_learned.shape[1])])
+
+        G_df.to_csv(self.output_G)
+
+        if self.has_ground_truth():
+            mse_F = mean_squared_error(self.F_truth, self.F_learned)
+            mse_G = mean_squared_error(self.G_truth, self.G_learned)
+
+            pd.DataFrame({
+                "MSE_F": [mse_F],
+                "MSE_G": [mse_G],
+            }).to_csv(self.output_RMSE, index=False)
+
+            print("Saved MSE file.")
+
+    def plot_uncertainty(self, F_runs, G_runs):
+        """
+        Creates uncertainty plots:
+        - Shaded confidence intervals for F (profile uncertainty)
+        - Shaded confidence intervals for G (time series uncertainty)
+        - Histogram of source contributions across runs
+        """
+
+    
+
+        save_dir = self.plot_dir
+
+        F_runs = np.array(F_runs)      # shape (n_runs, m, k)
+        G_runs = np.array(G_runs)      # shape (n_runs, n_samples, k)
+
+        n_runs, m, k = F_runs.shape
+        _, n_samples, _ = G_runs.shape
+
+        # ---------------------------------------------------------
+        # 1️⃣ PROFILE UNCERTAINTY (F)
+        # ---------------------------------------------------------
+        fig, axes = plt.subplots(k, 1, figsize=(10, 2*k), sharex=True)
+
+        for i in range(k):
+            F_mean = F_runs[:, :, i].mean(axis=0)
+            F_std  = F_runs[:, :, i].std(axis=0)
+
+            axes[i].plot(self.mz_labels, F_mean, color="C0", label=f"Mean Source {i+1}")
+            axes[i].fill_between(self.mz_labels,
+                                F_mean - F_std,
+                                F_mean + F_std,
+                                alpha=0.3, color="C0", label="±1σ")
+            axes[i].set_ylabel("Intensity")
+            axes[i].legend()
+
+        axes[-1].set_xlabel("m/z")
+        plt.tight_layout()
+        plt.savefig(os.path.join(save_dir, "uncertainty_F.png"), dpi=300)
+        plt.close()
+
+        # ---------------------------------------------------------
+        # 2️⃣ TIME SERIES UNCERTAINTY (G)
+        # ---------------------------------------------------------
+        fig, axes = plt.subplots(k, 1, figsize=(12, 2*k), sharex=True)
+
+        for i in range(k):
+            G_mean = G_runs[:, :, i].mean(axis=0)
+            G_std  = G_runs[:, :, i].std(axis=0)
+
+            axes[i].plot(self.time, G_mean, color="C1", label=f"Mean Source {i+1}")
+            axes[i].fill_between(self.time,
+                                G_mean - G_std,
+                                G_mean + G_std,
+                                alpha=0.3, color="C1", label="±1σ")
+            axes[i].legend()
+            axes[i].set_ylabel("Contribution")
+
+        axes[-1].set_xlabel("Time")
+        plt.tight_layout()
+        plt.savefig(os.path.join(save_dir, "uncertainty_G.png"), dpi=300)
+        plt.close()
+
+        # ---------------------------------------------------------
+        # 3️⃣ HISTOGRAM OF RUN-TO-RUN VARIATION (per source)
+        # ---------------------------------------------------------
+        fig, axes = plt.subplots(1, k, figsize=(4*k, 4))
+
+        for i in range(k):
+            # Total mass across time per run
+            total_per_run = G_runs[:, :, i].sum(axis=1)
+            axes[i].hist(total_per_run, bins=25, alpha=0.7, color="C2")
+            axes[i].set_title(f"Source {i+1}\nContribution variability")
+            axes[i].set_xlabel("Total contribution")
+            axes[i].set_ylabel("Frequency")
+
+        plt.tight_layout()
+        plt.savefig(os.path.join(save_dir, "uncertainty_histograms.png"), dpi=300)
+        plt.close()
+
+        print("Uncertainty plots saved in:", save_dir)
+    
     def get_input_path(self): return self.input_path
     def set_input_path(self, p): self.input_path = p
 
@@ -371,3 +586,9 @@ class Measurement:
     def get_F_fixed(self): return self.F_fixed
     def set_n_fixed(self, n_fixed): self.n_fixed = n_fixed
     def get_n_fixed(self): return self.n_fixed
+
+    def has_error(self):
+        return self.E is not None
+
+    def get_error(self):
+        return self.E

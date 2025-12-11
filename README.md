@@ -1,262 +1,325 @@
-# Machine Learning Source Apportionment for Organic Aerosols
+# **README.md — Machine Learning Source Apportionment for Organic Aerosols**
 
-This project allows training and applying ML models to apportion organic aerosol sources using AMS (Aerosol Mass Spectrometer) data.
+This repository implements several machine-learning–based source apportionment tools for **AMS (Aerosol Mass Spectrometer)** datasets, including:
 
----
+* **Sparse Logistic Regression classifiers (L1, Elastic Net, XGBoost)**
+    
+* **Non-Negative Matrix Factorization (NMF)**
+    
+* **Linear Autoencoder (AE) decomposition**
+    
+* **Source-Based Autoencoder (SourceAE)** with fixed profiles, uncertainty estimation, and ME-2–style constraints
+    
+* **Residual diagnostics & correlation with ground truth**
+    
+
+The system is designed to reproduce and extend methods commonly used in aerosol science (PMF, ME-2, CMB).
+
+* * *
+
+# **Installation**
 
 ### Install dependencies
 
-```
-$ poetry install
-```
-
-### Start a shell within the virtual environment
-
-```
-$ poetry shell
+```bash
+poetry install
 ```
 
------------
+### Enter the virtual environment
 
-## <u>Prepare data</u>
-
-### Transform training data from xlsx to csv
-
-```
-$ python src/classifier/train_xlsx_2_csv.py --input resources/library.xlsx --output resources/library.csv --sheet Sheet1
+```bash
+poetry shell
 ```
 
-### Transform prediction data from xlsx to csv 
+* * *
 
-```
-$ python src/classifier/predict_xlsx_2_csv.py --input resources/RusanenEtAl_synthetic.xlsx --output resources/RusanenEtAl_synthetic.csv --sheet X
-```
+# **Input Data Requirements**
 
-------------------
+Measurement files must be given as **Excel (.xlsx)** with the following sheets:
 
-## <u>Train the model</u>
+| Sheet | Description |
+| --- | --- |
+| **X** or **measurements** | Time series spectra. First column = timestamps, remaining columns = m/z intensities. |
+| **error** | Measurement uncertainty matrix σᵢⱼ (same shape as X). |
+| **F** (optional) | Ground truth profiles for validation (m/z × k). |
+| **G** (optional) | Ground truth contributions (time × k). |
+| **info** (optional) | Metadata. |
 
-```
-$ python src/classifier/ams_sparse_logreg_train.py --csv <train_data>.csv --outdir <folder_name> --features <ints...> --penalty {l1, elasticnet} --quiet --overwritemodel
-```
+Column names in sheet **X** must contain m/z values (e.g., `43`, `m/z 43`, `mz_43`, …).
 
-#### Training Script Arguments
+* * *
 
-- `--csv <train_data>.csv`  
-  Path to the CSV file containing spectra and `label` column.
+# **1. Library Preparation Scripts**
 
-- `--outdir <output_folder>`  
-  Directory to save the trained model. Created if it doesn't exist.
+## Convert training xlsx to CSV
 
-- `--penalty {l1, elasticnet, l2, adaptive, xgboost}`  
-  Type of model to train:  
-  - `l1` → Lasso logistic regression  
-  - `elasticnet` → L1 + L2 mixture  
-  - `l2` → Ridge logistic regression  
-  - `adaptive` → Adaptive Lasso (two-step weighted L1)  
-  - `xgboost` → Tree-based gradient boosting
-
-- `--l1-ratios <floats...>` *(required if `--penalty elasticnet`)*  
-  Grid of L1 ratios to try (1.0 = pure L1). Example: `--l1-ratios 0.5 0.75 0.9 1.0`
-
-- `--overwritemodel`  
-  Overwrite an existing model file without asking.
-
-- `--quiet`  
-  Suppress convergence warnings from scikit-learn.
-
-  #### Examples
-
-##### 1. L1 Logistic Regression
-```
-$ python src/classifier/ams_sparse_logreg_train.py --csv resources/library.csv --outdir resources/  --penalty l1 --quiet  --overwritemodel
+```bash
+python src/classifier/train_xlsx_2_csv.py \
+    --input resources/library.xlsx \
+    --output resources/library.csv \
+    --sheet Sheet1
 ```
 
-```
-$ python src/classifier/ams_sparse_logreg_train.py --csv resources/library.csv --outdir resources/ --penalty elasticnet --l1-ratios 0.5 0.75 0.9 1.0  --quiet \--overwritemodel
-```
+## Convert prediction xlsx to CSV
 
-  --------------------
-
-## <u>Predict with the generated model</u>
-
-```
-$ python src/classifier/ams_sparse_logreg_predict.py --csv resources/RusanenEtAl_synthetic.csv --model resources/model_11_feat.joblib --outdir resources/ 
-```
-On resources see the name of the file you produced.
-
-----------------
-## <u>Generate Normalized Class Fractions</u>
-
-This script converts the Excel file RusanenEtAl_synthetic.xlsx (sheet 'G') into a CSV containing normalized class fractions for each source.
-
-```
-$ python src/classifier/create_fractions_csv.py --xlsx resources/RusanenEtAl_synthetic.xlsx --outdir resources/
-
+```bash
+python src/classifier/predict_xlsx_2_csv.py \
+    --input resources/RusanenEtAl_synthetic.xlsx \
+    --output resources/RusanenEtAl_synthetic.csv \
+    --sheet X
 ```
 
-#### Script Arguments
+* * *
 
-- `--xlsx <inpu_excel>.csv`  
-  Path to the input Excel file containing the class data.
+# **2. Train Classifiers (L1, ElasticNet, Adaptive Lasso, XGBoost)**
 
-- `--outdir <output_folder>`  
-  Output directory where the CSV with normalized fractions will be saved.
-----------------
+### Example — Train L1 Logistic Regression
 
-## <u>Compare True Fractions vs Predicted Probabilities</u>
-
-This script compares the true class fractions from RusanenEtAl_synthetic_fractions.csv with predicted probabilities from the ML model output.
-
-```
-$ python src/classifier/prob_class_comparison.py  --true_csv resources/run_tests/RusanenEtAl_synthetic_fractions.csv --pred_csv resources/run_tests predictions_model_98feat_xgboost.csv --outdir resources/comparison/ --penalty xgboost
-
+```bash
+python src/classifier/ams_sparse_logreg_train.py \
+    --csv resources/library.csv \
+    --outdir resources/ \
+    --penalty l1 \
+    --overwritemodel \
+    --quiet
 ```
 
-#### Script Arguments
+### Example — Elastic Net
 
-- `--true_csv <inpu_excel>.csv`  
-  CSV file containing the true normalized class fractions. Usually generated by create_fractions_csv.py.
-
-- `--pred_csv <prob_csv>.csv`  
-  CSV file containing predicted probabilities from the ML models.
-
-- `--outdir <output_folder>`  
-  Directory where the combined CSV and scatter plots will be saved.
-
-- `--penalty {l1, elasticnet, l2, adaptive, xgboost}`  
-  Penalty or model type label.  
-----------------
-
-## NMF and Autoencoder Source Apportionment (Additional Tools)
-These scripts allow performing NMF, Autoencoder, and Source-Based Autoencoder decompositions on AMS measurement data.
-
-### Prepare Measurement Files
-
-Measurement input files must be in Excel (.xlsx) format with one or more of the following sheets:
-
-- measurements or X
-
-- Time series of AMS spectra.
-
-  - Column 1 = timestamps
-
-  - Columns 2..N = m/z intensities
-
-  - Column names must contain a parseable m/z (e.g., 43, m/z 43, mz_43)
-
-- F (optional) Ground-truth source profiles (m/z × components).
-
-- G (optional) Ground-truth time series contributions (time × components).
-
-These are automatically loaded using the shared Measurement class. Also it contains ploting functions.
-
-
-### Run NMF
-
-```
-$ python nmf_runner.py --input <data.xlsx> --output <prefix> --k <components> --max_iter 500 --tol 1e-4
+```bash
+python src/classifier/ams_sparse_logreg_train.py \
+    --csv resources/library.csv \
+    --outdir resources/ \
+    --penalty elasticnet \
+    --l1-ratios 0.5 0.75 0.9 1.0 \
+    --overwritemodel \
+    --quiet
 ```
 
+* * *
 
-Arguments
+# **3. Predict With Trained Classifiers**
 
--  --input
-  Path to measurement file (.xlsx or .csv)
-
-- --output
-Prefix used to save learned F and G matrices
-
-- --k
-Number of components
-
-- --max_iter
-Maximum number of NMF iterations
-
-- --tol
-Convergence tolerance
-
-Example 
+```bash
+python src/classifier/ams_sparse_logreg_predict.py \
+    --csv resources/RusanenEtAl_synthetic.csv \
+    --model resources/model_11_feat.joblib \
+    --outdir resources/
 ```
-$ python nmf_runner.py --input resources/RusanenEtAl_synthetic.xlsx --output results/nmf_run --k 5 --max_iter 600
+
+* * *
+
+# **4. Generate Normalized Class Fractions**
+
+```bash
+python src/classifier/create_fractions_csv.py \
+    --xlsx resources/RusanenEtAl_synthetic.xlsx \
+    --outdir resources/
+```
+
+* * *
+
+# **5. Compare True vs Predicted Probabilities**
+
+```bash
+python src/classifier/prob_class_comparison.py \
+    --true_csv resources/RusanenEtAl_synthetic_fractions.csv \
+    --pred_csv resources/predictions_model_98feat_xgboost.csv \
+    --outdir resources/comparison/ \
+    --penalty xgboost
+```
+
+* * *
+
+# **6. NMF Source Apportionment**
+
+Run basic NMF decomposition:
+
+```bash
+python nmf_runner.py \
+    --input resources/RusanenEtAl_synthetic.xlsx \
+    --output results/nmf_run \
+    --k 5 \
+    --max_iter 600
 ```
 
 This produces:
 
-- <prefix>_F_learned.csv
+* `*_F_learned.csv` — factor profiles
+    
+* `*_G_learned.csv` — contributions
+    
+* Profile & contribution plots
+    
+* Residual diagnostic plots
+    
+* Correlation with ground truth (if available)
+    
 
-- <prefix>_G_learned.csv
+* * *
 
-- Profile plots (F)
+# **7. Linear Autoencoder Decomposition (AE)**
 
-- Contribution plots (G)
+```bash
+python autoencoder_runner.py \
+    --input resources/RusanenEtAl_synthetic.xlsx \
+    --output results/AE_run \
+    --k 4 \
+    --lr 1e-2 \
+    --epochs 300
+```
 
-- Residual plots
+Features:
 
-- Correlation vs ground truth (if available)
+* Non-negativity enforced on encoder & decoder
+    
+* NNDSVDA initialization for stability
+    
+* Weighted loss using measurement uncertainty
+    
+* Automatic ground truth matching with Hungarian algorithm
+    
+* Residual diagnostics
+    
+
+* * *
+
+# **8. Source-Based Autoencoder (SourceAE)**
 
 
-### Run Autoencoder / Source-Based Autoencoder
 
+```bash
+python autoencoder_runner.py \
+    --input resources/RusanenEtAl_synthetic.xlsx \
+    --output results/SourceAE_run \
+    --k 4 \
+    --epochs 300 \
+    --fixed_profiles resources/library.xlsx \
+    --fixed_labels HOA BBOA
+```
 
+### SourceAE Features
+
+Hybrid decoder:  
+`F = [F_fixed | F_free]`
+
+Supports _multiple variants_ of fixed profiles from a library  
+Each run automatically picks one variant per profile:
 
 ```
-$ python autoencoder_runner.py --input <data.xlsx> --output <prefix> --k 5 --lr 1e-2 --epochs 500 --fixed_profiles <profiles.xlsx>
+HOA_Chen_EUOverview_all  
+BBOA_Chebaicheb_ATOLL  
+...
+```
+
+Allows **uncertainty estimation** using:
+
+* Multiple random fixed variants
+    
+* Multiple AE runs
+    
+* Variability of learned G and F
+    
+
+Automatic ground truth matching using optimal permutation.
+
+ME-2–style **normalization constraint**:  
+Each factor profile is normalized via:
 
 ```
-Arguments
+F[:, j] /= sum(F[:, j])
+G[:, j] *= sum(F[:, j])
+```
 
-- --input :
-Measurement file (.xlsx or .csv)
+so that the reconstruction `X_hat = G Fᵀ` remains unchanged.
 
-- --output :
-Prefix used for saving learned matrices
+* * *
 
-- --k :
-Total number of sources (free + fixed)
+# **9. Multi-Run Uncertainty Estimation**
 
-- --lr :
-Learning rate
+### Example — 10 runs with random fixed profiles:
 
-- --epochs :
-Number of training iterations
+```bash
+python autoencoder_runner.py \
+    --input resources/RusanenEtAl_synthetic.xlsx \
+    --output results/SourceAE_multi \
+    --k 4 \
+    --epochs 300 \
+    --fixed_profiles resources/library.xlsx \
+    --fixed_labels HOA BBOA \
+    --n_runs_sourceae 10 \
+    --random_fixed_profiles
+```
 
-- --fixed_profiles :
-Excel file containing multiple candidates for fixed profiles
-(e.g., HOA, CCOA, BBOA).
+Outputs:
 
-One random variant of each is selected during training.
+* Mean & std of **F** and **G**
+    
+* Per–component variability plots
+    
+* Uncertainty histograms
+    
+* Stacked contributions with uncertainty shading
+    
 
+* * *
 
-### Autoencoders.py (Model Definitions)
+# **10. Residual Diagnostics**
 
+Each model produces:
 
-#### Autoencoder(m, k)
+### ✔ Scaled residuals vs m/z
 
-A linear autoencoder defined as:
+Mean ± standard deviation across time.
 
-- Non-negative encoder weights
+### ✔ Scaled residuals vs time
 
-- Non-negative decoder weights
+Daily structure & model drift.
 
-Reconstruction:
-- X → G → X_hat
+### ✔ Full residual distribution
 
-#### SourceBasedAE(m, k, F_fixed, n_fixed)
+Histogram + normal fit + KDE.
 
-Semi-supervised version:
+* * *
 
-- First n_fixed profiles are fixed (HOA, CCOA, BBOA, etc.)
+# **11. Model Theory Summary**
 
-- Remaining profiles are learned
+### **Autoencoder decomposition**
 
-Decoder structure:
-- F = [F_fixed | F_free]
-- X_hat = G @ F^T
-
-
-## Exit the poetry shell
+A linear AE performs:
 
 ```
-$ exit
+G = Encoder(X)
+X_hat = G @ Fᵀ
 ```
+
+Equivalent to constrained NMF when non-negativity is enforced.
+
+### **SourceAE**
+
+Introduces fixed profiles:
+
+```
+F = [F_fixed | F_free]
+X_hat = G @ Fᵀ
+```
+
+
+### **Loss function (Q)**
+
+Weighted by measurement error:
+
+```
+Q = mean( ((X - X_hat) / σ)² )
+```
+
+
+* * *
+
+# **12. Exit Environment**
+
+```bash
+exit
+```
+
+* * *

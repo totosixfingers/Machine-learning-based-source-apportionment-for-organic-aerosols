@@ -19,7 +19,7 @@ def main():
     # -------------------------------------------------------
     # Load using Measurements class
     # -------------------------------------------------------
-    meas = Measurement(args.input, args.output)
+    meas = Measurement(input_path=args.input, output_prefix=args.output, plot_subdir="NMF")
     meas.load()
 
     X_np = meas.get_X()              # n × m NumPy
@@ -32,30 +32,26 @@ def main():
     model = NMF(n_components=args.k, init='nndsvda', max_iter=args.max_iter, tol=args.tol, random_state=42)
     G_learned = model.fit_transform(X_np)   # n × k
     F_learned = model.components_.T         # m × k
-
+    meas.set_F(F_learned)
+    meas.set_G(G_learned)
     # -------------------------------------------------------
     # Save F and G matrices
     # -------------------------------------------------------
-    df_F = pd.DataFrame(F_learned, index=mz_labels, columns=[f"Source_{i+1}" for i in range(args.k)])
-    df_G = pd.DataFrame(G_learned, index=time, columns=[f"Source_{i+1}" for i in range(args.k)])
-
-    df_F.to_csv(args.output + "_F_learned.csv")
-    df_G.to_csv(args.output + "_G_learned.csv")
+    meas.Excel_results_creation()
 
     print("Saved learned F and G matrices.")
 
     # -------------------------------------------------------
     # Compare with ground truth if available
     # -------------------------------------------------------
-    meas.compare_to_ground_truth(F_learned, G_learned)
+    meas.compare_to_ground_truth()
 
     # -------------------------------------------------------
     # Plot learned profiles and residuals
     # -------------------------------------------------------
     X_hat = G_learned @ F_learned.T   # Reconstructed X
-    meas.plot(X_np, X_hat, F_learned, G_learned)
-    meas.plot_scaled_residuals(X_np, X_hat)
-
+    meas.plot()
+    meas.plot_scaled_residuals(X_hat)
 # -----------------------------------------------------------
 if __name__ == "__main__":
     main()
