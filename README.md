@@ -136,7 +136,7 @@ python src/classifier/prob_class_comparison.py \
 Run basic NMF decomposition:
 
 ```bash
-python nmf_runner.py \
+python NMF.py \
     --input resources/RusanenEtAl_synthetic.xlsx \
     --output results/nmf_run \
     --k 5 \
@@ -161,7 +161,7 @@ This produces:
 # **7. Linear Autoencoder Decomposition (AE)**
 
 ```bash
-python autoencoder_runner.py \
+python Train_AE.py \
     --input resources/RusanenEtAl_synthetic.xlsx \
     --output results/AE_run \
     --k 4 \
@@ -189,7 +189,7 @@ Features:
 
 
 ```bash
-python autoencoder_runner.py \
+python Train_AE.py \
     --input resources/RusanenEtAl_synthetic.xlsx \
     --output results/SourceAE_run \
     --k 4 \
@@ -223,7 +223,7 @@ Allows **uncertainty estimation** using:
 
 Automatic ground truth matching using optimal permutation.
 
-ME-2–style **normalization constraint**:  
+ **normalization constraint**:  
 Each factor profile is normalized via:
 
 ```
@@ -240,7 +240,7 @@ so that the reconstruction `X_hat = G Fᵀ` remains unchanged.
 ### Example — 10 runs with random fixed profiles:
 
 ```bash
-python autoencoder_runner.py \
+python Train_AE.py \
     --input resources/RusanenEtAl_synthetic.xlsx \
     --output results/SourceAE_multi \
     --k 4 \
@@ -268,15 +268,15 @@ Outputs:
 
 Each model produces:
 
-### ✔ Scaled residuals vs m/z
+###  Scaled residuals vs m/z
 
 Mean ± standard deviation across time.
 
-### ✔ Scaled residuals vs time
+###  Scaled residuals vs time
 
 Daily structure & model drift.
 
-### ✔ Full residual distribution
+###  Full residual distribution
 
 Histogram + normal fit + KDE.
 
